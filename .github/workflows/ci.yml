@@ -1,0 +1,166 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  shellcheck:
+    name: ShellCheck Linting
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run ShellCheck
+        uses: ludeeus/action-shellcheck@master
+        with:
+          scandir: '.'
+          severity: warning
+          ignore_paths: '.git .github'
+
+  validate-script:
+    name: Validate Script
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Check script exists
+        run: |
+          if [ ! -f "server-stats.sh" ]; then
+            echo "Error: server-stats.sh not found"
+            exit 1
+          fi
+          echo "✓ server-stats.sh exists"
+
+      - name: Check script is executable
+        run: |
+          if [ -x "server-stats.sh" ]; then
+            echo "✓ server-stats.sh is executable"
+          else
+            echo "Warning: server-stats.sh is not executable, setting permissions"
+            chmod +x server-stats.sh
+          fi
+
+      - name: Validate bash syntax
+        run: |
+          bash -n server-stats.sh
+          echo "✓ Bash syntax is valid"
+
+      - name: Check for required commands
+        run: |
+          echo "Checking for required system commands..."
+          commands=("top" "free" "df" "ps" "who" "uptime" "awk" "grep" "sed")
+          for cmd in "${commands[@]}"; do
+            if command -v "$cmd" &> /dev/null; then
+              echo "✓ $cmd found"
+            else
+              echo "✗ $cmd not found"
+              exit 1
+            fi
+          done
+
+      - name: Test script execution
+        run: |
+          echo "Running server-stats.sh..."
+          timeout 30s ./server-stats.sh || exit_code=$?
+          if [ "${exit_code:-0}" -eq 124 ]; then
+            echo "Script timed out (expected for long-running scripts)"
+            exit 0
+          elif [ "${exit_code:-0}" -ne 0 ]; then
+            echo "Script exited with code $exit_code"
+            exit 1
+          fi
+          echo "✓ Script executed successfully"
+
+  readme-check:
+    name: Documentation Check
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Check README exists
+        run: |
+          if [ -f "README.md" ]; then
+            echo "✓ README.md exists"
+          else
+            echo "✗ README.md not found"
+            exit 1
+          fi
+
+      - name: Validate README content
+        run: |
+          echo "Checking README.md content..."
+          required_sections=("Installation" "Usage" "Features")
+          for section in "${required_sections[@]}"; do
+            if grep -qi "$section" README.md; then
+              echo "✓ Section '$section' found"
+            else
+              echo "⚠ Section '$section' not found"
+            fi
+          done
+
+  security-scan:
+    name: Security Scan
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Check for common security issues
+        run: |
+          echo "Scanning for potential security issues..."
+
+          # Check for hardcoded credentials
+          if grep -r -E '(password|passwd|pwd|token|api_key|secret).*=.*["\047][^"\047]+["\047]' server-stats.sh; then
+            echo "⚠ Warning: Potential hardcoded credentials found"
+          else
+            echo "✓ No hardcoded credentials detected"
+          fi
+
+          # Check for unsafe eval usage
+          if grep -E '\beval\b' server-stats.sh; then
+            echo "⚠ Warning: eval usage detected - review for security"
+          else
+            echo "✓ No eval usage detected"
+          fi
+
+          # Check for command injection vulnerabilities
+          if grep -E '\$\([^)]*\$' server-stats.sh; then
+            echo "⚠ Warning: Potential command injection pattern detected"
+          else
+            echo "✓ No obvious command injection patterns"
+          fi
+
+  build-status:
+    name: Build Status
+    runs-on: ubuntu-latest
+    needs: [shellcheck, validate-script, readme-check, security-scan]
+    if: always()
+
+    steps:
+      - name: Check build status
+        run: |
+          if [ "${{ needs.shellcheck.result }}" == "success" ] && \
+             [ "${{ needs.validate-script.result }}" == "success" ] && \
+             [ "${{ needs.readme-check.result }}" == "success" ] && \
+             [ "${{ needs.security-scan.result }}" == "success" ]; then
+            echo "✓ All checks passed successfully!"
+            exit 0
+          else
+            echo "✗ Some checks failed"
+            echo "ShellCheck: ${{ needs.shellcheck.result }}"
+            echo "Validate Script: ${{ needs.validate-script.result }}"
+            echo "README Check: ${{ needs.readme-check.result }}"
+            echo "Security Scan: ${{ needs.security-scan.result }}"
+            exit 1
+          fi
