@@ -2,6 +2,8 @@
 
 A comprehensive bash script for analyzing and monitoring Linux server performance statistics in real-time.
 
+**Project Page:** [https://mirzasaikatahmmed.github.io/server-stats/](https://mirzasaikatahmmed.github.io/server-stats/)
+
 ## Overview
 
 `server-stats.sh` is a lightweight, zero-dependency tool that provides detailed insights into your server's performance. It displays system information, resource usage, and top processes in a beautifully formatted, color-coded output.
